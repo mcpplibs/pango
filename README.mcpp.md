@@ -18,7 +18,7 @@ gnome.pangocairo = "1.56.1"   # the usual entry point: layout + rendering
 Two ways to consume it, and **you pick one**:
 
 ```cpp
-import gnome.pangocairo;      // re-exports pango, pangoft2 and cairo
+import gnome.pangocairo;      // re-exports gnome.pango, gnome.pangoft2, cairo
 ```
 ```cpp
 #include <pango/pangocairo.h>
@@ -112,19 +112,24 @@ followed by a segfault. The test now reads the font map's *font type* and
 requires `CAIRO_FONT_TYPE_FT`, which is the assertion that would have caught it
 immediately.
 
-## ⚠️ `freedesktop.cairo`'s module is not sufficient on its own
+## ✅ `cairo`'s module was not sufficient on its own — and this fork found it
 
-Measured on 1.18.2: it exports 470 names, **zero enumerators** (no
-`CAIRO_FORMAT_ARGB32`, no `CAIRO_FONT_TYPE_FT`) and no `cairo_t`. The index's
-own cairo example does not notice, because it writes **both**
-`#include <cairo.h>` and `import freedesktop.cairo;` — the header supplies what
-the module lacks.
+Measured on the `1.18.2-mcpp2` asset: it exported 470 names, **zero
+enumerators** (no `CAIRO_FORMAT_ARGB32`, no `CAIRO_FONT_TYPE_FT`) and no
+`cairo_t`. The index's own cairo example did not notice, because it wrote
+**both** `#include <cairo.h>` and `import freedesktop.cairo;` — the header
+supplied what the module lacked, so that import had never been asked to stand
+on its own.
 
-pangocairo cannot do that (mixing the routes is the `struct _IO_FILE` problem
-above), so `gnome.pangocairo` scans `cairo.h` itself and exports those names.
-Exporting the same entity from two modules is harmless — they are the same
-global-module entities — so this is additive. **When cairo's wrapper is fixed,
-that scan can go.**
+It surfaced *here*, because pangocairo cannot mix the two routes
+(`pangocairo.h` reaches glib and therefore `<stdio.h>`) and so had to ask the
+module for `cairo_t` and got nothing. This fork carried a workaround for one
+release — scanning `cairo.h` itself — and **that workaround is now gone**:
+`1.18.2-mcpp3` exports 697 names, `cairo_t` and the 192 enumerators included,
+and the plain re-export is sufficient.
+
+The module is also named `cairo` now, not `freedesktop.cairo`: freedesktop.org
+hosts the git and does not own the interface.
 
 ## ⚠️ Name `pangocairo` alone
 
