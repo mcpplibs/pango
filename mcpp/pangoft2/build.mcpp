@@ -1,0 +1,43 @@
+// gnome.pangoft2 — the same generators, plus HAVE_FREETYPE.
+#include <algorithm>
+#include <cctype>
+#include <cstdio>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <set>
+#include <sstream>
+#include <string>
+#include <vector>
+
+import mcpp;
+
+#include "../common/prelude.h"
+#include "../common/modules.h"
+
+int main()
+{
+    if (std::string(mcpp::target_os()) != "linux") {
+        note("this package builds pangoft2 for Linux only.\n");
+        return 1;
+    }
+    // HAVE_FREETYPE is what pango-utils.c and the font-map registration test
+    // to decide whether the FT2 backend exists. This member IS that backend,
+    // so it is the one that answers yes.
+    pango_common_setup({"HAVE_FREETYPE"});
+
+    gen_module("gnome.pangoft2",
+               {"pango/pangoft2.h", "pango/pangofc-font.h", "pango/pangofc-fontmap.h",
+                "pango/pangofc-decoder.h", "pango/pango-ot.h"},
+               {g_up / "pango" / "pangoft2.h", g_up / "pango" / "pangofc-font.h",
+                g_up / "pango" / "pangofc-fontmap.h", g_up / "pango" / "pangofc-decoder.h",
+                g_up / "pango" / "pango-ot.h"},
+               g_root / "src" / "pangoft2.cppm",
+               g_inc / "pango" / "pangoft2-macros.h",
+               "pango/pangoft2-macros.h",
+               /*min_exports=*/60,
+               /*reexports=*/{"gnome.pango"});
+
+    mcpp::rerun_if_changed("build.mcpp");
+    return 0;
+}

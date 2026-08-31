@@ -1,0 +1,77 @@
+# pangoft2 — the FreeType/fontconfig font backend.
+#
+# pango itself knows nothing about how to find or rasterise a font. This member
+# is the half that does, on Linux: fontconfig answers "which file", FreeType
+# answers "what do the glyphs look like", and harfbuzz does the shaping.
+#
+# Upstream builds it as a separate shared library, and this index follows that
+# split for the same reason it splits gio from glib: it is what a consumer
+# links.
+[package]
+namespace   = "gnome"
+name        = "pangoft2"
+version     = "1.56.1"
+standard    = "c++23"
+description = "PangoFT2 1.56.1 — pango's FreeType and fontconfig font backend"
+license     = "LGPL-2.1-or-later"
+repo        = "https://gitlab.gnome.org/GNOME/pango"
+
+[build]
+sources = [
+    # pangofc_public_sources — the fontconfig-backed font and font map.
+    "../../upstream/pango/pangofc-font.c",
+    "../../upstream/pango/pangofc-fontmap.c",
+    "../../upstream/pango/pangofc-decoder.c",
+    "../../upstream/pango/pango-trace.c",
+
+    # pangoot_public_sources — the OpenType layout tables, kept for API
+    # compatibility. pango's own shaping goes through harfbuzz.
+    "../../upstream/pango/pango-ot-buffer.c",
+    "../../upstream/pango/pango-ot-info.c",
+    "../../upstream/pango/pango-ot-ruleset.c",
+    "../../upstream/pango/pango-ot-tag.c",
+
+    # pangoft2_public_sources.
+    "../../upstream/pango/pangoft2-fontmap.c",
+    "../../upstream/pango/pangoft2-render.c",
+    "../../upstream/pango/pangoft2.c",
+
+    "src/pangoft2.cppm",
+]
+
+include_dirs = [
+    "include",
+    "../../upstream",
+    "../../upstream/pango",
+]
+
+cflags = [
+    '-DG_LOG_DOMAIN=\"Pango\"',
+    "-DG_LOG_USE_STRUCTURED=1",
+    "-DPANGO_COMPILATION",
+    '-DSYSCONFDIR=\"/etc\"',
+    '-DLIBDIR=\"/usr/lib\"',
+    "-D_GNU_SOURCE",
+    "-Wno-unused-parameter",
+    "-Wno-declaration-after-statement",
+    "-fPIC",
+]
+
+ldflags = ["-lm"]
+
+[lib]
+path = "src/pangoft2.cppm"
+
+[targets.pangoft2-1_0]
+kind = "lib"
+
+[dependencies]
+# A workspace path dependency, which is also what orders the generators:
+# pango's build.mcpp writes its include/ before anything here compiles.
+gnome.pango = { path = "../pango" }
+
+# ⚠️ Do NOT name gnome.gio here: it is a path dependency of gnome.pango, and
+# mcpp rejects a package requested both ways. It arrives transitively.
+freedesktop.fontconfig = "2.15.0"
+compat.freetype        = "2.13.3"
+compat.harfbuzz        = "14.3.0"

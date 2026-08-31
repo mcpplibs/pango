@@ -1,0 +1,2 @@
+[workspace]
+members = ["mcpp/pango", "mcpp/pangoft2", "mcpp/pangocairo"]

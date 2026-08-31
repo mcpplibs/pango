@@ -1,0 +1,65 @@
+// gnome.pangocairo — the same generators, plus HAVE_CAIRO and
+// HAVE_CAIRO_FREETYPE.
+#include <algorithm>
+#include <cctype>
+#include <cstdio>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <set>
+#include <sstream>
+#include <string>
+#include <vector>
+
+import mcpp;
+
+#include "../common/prelude.h"
+#include "../common/modules.h"
+
+int main()
+{
+    if (std::string(mcpp::target_os()) != "linux") {
+        note("this package builds pangocairo for Linux only.\n");
+        return 1;
+    }
+    // HAVE_CAIRO_FREETYPE is what pangocairo-fontmap.c tests to decide whether
+    // to register the fontconfig-backed font map. Without it pangocairo builds
+    // and then finds no fonts at run time — a silent degradation, so the macro
+    // is set by the member that actually compiles the fc sources.
+    pango_common_setup({"HAVE_CAIRO", "HAVE_CAIRO_FREETYPE", "HAVE_FREETYPE"});
+
+    // ⚠️ cairo.h IS SCANNED HERE, and that is a WORKAROUND rather than a
+    // design. This member's own signatures take `cairo_t *` and
+    // `cairo_surface_t *`, so `import gnome.pangocairo;` has to carry them.
+    // The obvious way is to re-export freedesktop.cairo — which is done below
+    // — but MEASURED on 1.18.2 its module is not sufficient on its own:
+    //
+    //     470 names exported, ZERO enumerators (no CAIRO_FORMAT_ARGB32,
+    //     no CAIRO_FONT_TYPE_FT), and no `cairo_t`
+    //
+    // and the index's own cairo example does not notice, because it writes
+    // BOTH `#include <cairo.h>` and `import freedesktop.cairo;` — the header
+    // supplies what the module lacks. pangocairo cannot do that: pangocairo.h
+    // reaches glib and therefore <stdio.h>, so mixing the two routes makes
+    // `struct _IO_FILE` two entities.
+    //
+    // Exporting the same entity from two modules is harmless — they are the
+    // same global-module entities — so this is additive, not a conflict. When
+    // freedesktop.cairo's wrapper is fixed, this line can go.
+    gen_module("gnome.pangocairo", {"pango/pangocairo.h"},
+               {g_up / "pango" / "pangocairo.h",
+                fs::path(mcpp::dep_dir("cairo")).parent_path().parent_path()
+                    / "upstream" / "src" / "cairo.h"},
+               g_root / "src" / "pangocairo.cppm",
+               g_inc / "pango" / "pangocairo-macros.h",
+               "pango/pangocairo-macros.h",
+               /*min_exports=*/25,   // upstream ships 33 pango_cairo_* functions
+               // pangocairo.h includes <cairo.h>, so the module must carry
+               // cairo's names too — `cairo_t` and `cairo_surface_t` are in
+               // this member's own signatures. freedesktop.cairo exposes a
+               // module of its own, which is what makes this possible.
+               /*reexports=*/{"gnome.pango", "gnome.pangoft2", "freedesktop.cairo"});
+
+    mcpp::rerun_if_changed("build.mcpp");
+    return 0;
+}

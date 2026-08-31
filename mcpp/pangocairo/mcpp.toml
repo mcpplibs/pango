@@ -1,0 +1,69 @@
+# pangocairo — the cairo rendering backend, and the usual entry point.
+#
+# Almost every consumer of pango reaches it through this member:
+# `pango_cairo_create_layout(cr)` then `pango_cairo_show_layout(cr, layout)` is
+# the whole API most programs need. pango does the layout, cairo puts pixels
+# down, and this is the seam.
+#
+# ⚠️ IT DEPENDS ON pangoft2, NOT JUST cairo. Upstream adds
+# `pangocairo-fcfont.c` and `pangocairo-fcfontmap.c` whenever the freetype font
+# backend is enabled (meson.build:489) — they are what let a cairo surface draw
+# a fontconfig-selected font, which on Linux is every font.
+[package]
+namespace   = "gnome"
+name        = "pangocairo"
+version     = "1.56.1"
+standard    = "c++23"
+description = "PangoCairo 1.56.1 — pango's cairo rendering backend, the usual entry point"
+license     = "LGPL-2.1-or-later"
+repo        = "https://gitlab.gnome.org/GNOME/pango"
+
+[build]
+sources = [
+    "../../upstream/pango/pangocairo-context.c",
+    "../../upstream/pango/pangocairo-font.c",
+    "../../upstream/pango/pangocairo-fontmap.c",
+    "../../upstream/pango/pangocairo-render.c",
+
+    # The freetype half — meson.build:489, `if
+    # pango_font_backends.contains('freetype')`.
+    "../../upstream/pango/pangocairo-fcfont.c",
+    "../../upstream/pango/pangocairo-fcfontmap.c",
+
+    "src/pangocairo.cppm",
+]
+
+include_dirs = [
+    "include",
+    "../../upstream",
+    "../../upstream/pango",
+]
+
+cflags = [
+    '-DG_LOG_DOMAIN=\"Pango\"',
+    "-DG_LOG_USE_STRUCTURED=1",
+    "-DPANGO_COMPILATION",
+    '-DSYSCONFDIR=\"/etc\"',
+    '-DLIBDIR=\"/usr/lib\"',
+    "-D_GNU_SOURCE",
+    "-Wno-unused-parameter",
+    "-Wno-declaration-after-statement",
+    "-fPIC",
+]
+
+ldflags = ["-lm"]
+
+[lib]
+path = "src/pangocairo.cppm"
+
+[targets.pangocairo-1_0]
+kind = "lib"
+
+[dependencies]
+gnome.pango    = { path = "../pango" }
+gnome.pangoft2 = { path = "../pangoft2" }
+
+# ⚠️ cairo's DEFAULT features are ft + fc + png, which is exactly what the
+# fcfont sources need. Naming it plainly keeps that default rather than
+# re-deriving it here.
+freedesktop.cairo = "1.18.2"

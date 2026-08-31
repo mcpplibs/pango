@@ -1,0 +1,198 @@
+name: ci
+
+# What this checks that a plain `mcpp build` does not:
+#
+#   - BOTH toolchains. In this ecosystem the llvm leg has repeatedly caught
+#     things gcc structurally cannot see — most recently that exporting an
+#     unnamed enum's typedef makes its enumerators visible on GCC and not on
+#     clang, which silently halved a module wrapper.
+#   - BOTH consumption routes. The namespace is a contract here: `gnome.*`
+#     promises `import`, so each member has a module test as well as a header
+#     test, and they cannot be combined in one TU.
+#   - that upstream/ is the release tarball byte for byte.
+#   - what the generators actually WROTE. config.h has no input template
+#     upstream, so every value in it is a decision, and a wrong PANGO_BINARY_AGE
+#     does not fail to build — it makes pango_version_check answer wrongly.
+on:
+  push:
+    branches: [ '**' ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [default, llvm]
+    name: build (${{ matrix.toolchain }})
+    steps:
+      - uses: actions/checkout@v4
+
+      # XLINGS_NON_INTERACTIVE: without it the installer takes its `curl | bash`
+      # branch (`xlings self install < /dev/tty`) and a runner's /dev/tty is
+      # readable but not connected.
+      - name: Install xlings + mcpp
+        env:
+          XLINGS_NON_INTERACTIVE: "1"
+          XLINGS_VERSION: "2026.8.27.5"
+        run: |
+          curl -fsSL https://d2learn.org/xlings-install.sh | bash
+          echo "$HOME/.xlings/bin" >> "$GITHUB_PATH"
+          "$HOME/.xlings/bin/xlings" --version
+          "$HOME/.xlings/bin/xlings" install mcpp
+          echo "$HOME/.xlings/subos/default/bin" >> "$GITHUB_PATH"
+
+      # A clean runner carries the index snapshot of the day its image was
+      # built. This fork needs gnome.gio, which is new.
+      - name: refresh the index
+        run: mcpp index update
+
+      - name: select toolchain
+        if: matrix.toolchain == 'llvm'
+        run: |
+          mcpp toolchain install llvm
+          mcpp toolchain default llvm
+
+      - name: pango
+        run: cd mcpp/pango && mcpp test
+
+      - name: pangoft2
+        run: cd mcpp/pangoft2 && mcpp test
+
+      - name: pangocairo
+        run: cd mcpp/pangocairo && mcpp test
+
+      # Not "did it build" — what the generators wrote. Each of these would
+      # compile and link if it were wrong.
+      - name: the generated files say what they should
+        run: |
+          cd mcpp
+          for m in pango pangoft2 pangocairo; do
+            echo "--- $m/include ---"
+            find "$m/include" -type f | sort
+
+            # pango-features.h: the version, from the .meson template.
+            grep -qx '#define PANGO_VERSION_MAJOR 1' "$m/include/pango/pango-features.h" \
+              || { echo "::error::$m: pango-features.h has the wrong major"; exit 1; }
+            grep -qx '#define PANGO_VERSION_STRING "1.56.1"' "$m/include/pango/pango-features.h" \
+              || { echo "::error::$m: the @…@ substitution did not happen"; exit 1; }
+
+            # config.h: WRITTEN, not substituted — upstream's configure_file has
+            # no input. PANGO_BINARY_AGE is minor*100 + micro, and a wrong value
+            # makes pango_version_check answer wrongly at RUN TIME.
+            grep -qx '#define PANGO_BINARY_AGE 5601' "$m/include/config.h" \
+              || { echo "::error::$m: PANGO_BINARY_AGE is not 56*100+1"; exit 1; }
+            grep -qx '#define PANGO_INTERFACE_AGE 1' "$m/include/config.h" \
+              || { echo "::error::$m: PANGO_INTERFACE_AGE is wrong for a stable minor"; exit 1; }
+
+            # ⚠️ ABSENT, NOT 0. pango tests these with #ifdef, so `#define
+            # HAVE_LIBTHAI 0` would mean YES and call a library that is not
+            # linked. The glib fork shipped that mistake nine times over.
+            for u in HAVE_LIBTHAI HAVE_SYSPROF HAVE_CORE_TEXT HAVE_CAIRO_WIN32; do
+              grep -qE "^#define +$u" "$m/include/config.h" \
+                && { echo "::error::$m: $u is DEFINED; it is #ifdef-tested and must be absent"; exit 1; }
+            done
+          done
+
+          # ── the enum types, which belong to the pango member ──────────────
+          t=$(grep -c '_get_type (void)' pango/include/pango/pango-enum-types.h)
+          echo "generated enum types: $t"
+          [ "$t" -ge 25 ] || { echo "::error::$t enum types, expected at least 25"; exit 1; }
+          # ⭐ THE MACRO NAME, checked separately from the function name.
+          # glib-mkenums builds @ENUMPREFIX@ from the TYPE name, not the
+          # enumerator prefix. gnome.gobject shipped that backwards once, and
+          # every FUNCTION name was still right — so only the macro finds it.
+          grep -qx '#define PANGO_TYPE_ALIGNMENT (pango_alignment_get_type ())' \
+            pango/include/pango/pango-enum-types.h \
+            || { echo "::error::the PANGO_TYPE_* macros are not upstream's"; exit 1; }
+          grep -q '"center"' pango/include/pango/pango-enum-types.c \
+            || { echo "::error::the enum nicks are not what mkenums derives"; exit 1; }
+
+          # ── the per-member config.h halves ───────────────────────────────
+          # ⚠️ Dropping HAVE_CAIRO_FREETYPE does NOT fail to build: pangocairo
+          # registers no backends and dies at run time with an empty
+          # "Available backends are:" list. Measured.
+          grep -qx '#define HAVE_FREETYPE 1' pangoft2/include/config.h \
+            || { echo "::error::pangoft2 did not claim HAVE_FREETYPE"; exit 1; }
+          grep -qx '#define HAVE_CAIRO_FREETYPE 1' pangocairo/include/config.h \
+            || { echo "::error::pangocairo would register NO font backends"; exit 1; }
+          grep -qE '^#define +HAVE_CAIRO_FREETYPE' pango/include/config.h \
+            && { echo "::error::the base pango member must not claim a cairo backend"; exit 1; }
+
+          # ── the module wrappers ──────────────────────────────────────────
+          # Floors, not equalities: upstream adds API. What they catch is a
+          # COLLAPSE, and every collapse in this generator's history was silent.
+          for m in pango:700 pangoft2:60 pangocairo:200; do
+            name=${m%%:*}; floor=${m##*:}
+            n=$(grep -c '^using ::' "$name/src/$name.cppm")
+            echo "$name module exports: $n (floor $floor)"
+            [ "$n" -ge "$floor" ] || { echo "::error::$name exports only $n names; the scan collapsed"; exit 1; }
+          done
+
+          # An ENUMERATOR, which is the check that needed two toolchains.
+          grep -qx 'using ::PANGO_ALIGN_CENTER;' pango/src/pango.cppm \
+            || { echo "::error::enumerators are not exported; clang will reject consumers"; exit 1; }
+          # And the re-export chain, which is not optional: the siblings are
+          # workspace PATH dependencies and a consumer cannot name them.
+          grep -qx 'export import gnome.gio;' pango/src/pango.cppm \
+            || { echo "::error::gnome.pango does not re-export gnome.gio"; exit 1; }
+          grep -qx 'export import gnome.pangoft2;' pangocairo/src/pangocairo.cppm \
+            || { echo "::error::gnome.pangocairo does not re-export gnome.pangoft2"; exit 1; }
+
+          echo "all generated files check out, in all three trees"
+
+      # A consumer naming pangocairo alone must get the whole stack.
+      - name: a consumer naming pangocairo alone renders text
+        run: |
+          d=$(mktemp -d); mkdir -p "$d/src"
+          cat > "$d/mcpp.toml" <<TOML
+          [package]
+          name = "render"
+          version = "0.1.0"
+          standard = "c++23"
+          [target.'cfg(linux)'.dependencies.gnome]
+          pangocairo = { path = "$PWD/mcpp/pangocairo" }
+          [targets.render]
+          kind = "bin"
+          main = "src/main.cpp"
+          TOML
+          cat > "$d/src/main.cpp" <<'CPP'
+          #include <pango/pangocairo.h>
+          #include <cstdio>
+          int main() {
+              PangoFontMap *m = pango_cairo_font_map_get_default();
+              PangoContext *c = pango_font_map_create_context(m);
+              PangoLayout *l = pango_layout_new(c);
+              pango_layout_set_text(l, "Hello", -1);
+              int w = 0, h = 0;
+              pango_layout_get_pixel_size(l, &w, &h);
+              std::printf("layout %dx%d, backend %s\n", w, h, G_OBJECT_TYPE_NAME(m));
+              const int ok = (m != nullptr && c != nullptr && l != nullptr);
+              g_object_unref(l); g_object_unref(c);
+              return ok ? 0 : 1;
+          }
+          CPP
+          cd "$d" && mcpp run
+
+  upstream:
+    runs-on: ubuntu-latest
+    name: upstream/ is the release tarball, unmodified
+    steps:
+      - uses: actions/checkout@v4
+      - name: diff upstream/ against pango 1.56.1
+        run: |
+          curl -fsSL -o /tmp/u.tar.xz \
+            https://download.gnome.org/sources/pango/1.56/pango-1.56.1.tar.xz
+          mkdir -p /tmp/u && tar xf /tmp/u.tar.xz -C /tmp/u --strip-components=1
+          if ! diff -r -q /tmp/u upstream >/dev/null 2>&1; then
+            echo "::error::upstream/ differs from pango 1.56.1. Everything this fork adds belongs under mcpp/."
+            diff -r -q /tmp/u upstream | head -20
+            exit 1
+          fi
+          echo "upstream/ is 1.56.1, unmodified"

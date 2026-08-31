@@ -1,0 +1,42 @@
+// gnome.pango — the two upstream generators plus this fork's module wrapper.
+#include <algorithm>
+#include <cctype>
+#include <cstdio>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <set>
+#include <sstream>
+#include <string>
+#include <vector>
+
+import mcpp;
+
+#include "../common/prelude.h"
+#include "../common/modules.h"
+
+int main()
+{
+    if (std::string(mcpp::target_os()) != "linux") {
+        note("this package builds pango for Linux only.\n");
+        return 1;
+    }
+    pango_common_setup();
+
+    gen_module("gnome.pango", {"pango/pango.h"},
+               headers_from_umbrella(g_up / "pango" / "pango.h", "pango",
+                                     {g_up / "pango", g_inc / "pango"}),
+               g_root / "src" / "pango.cppm",
+               g_inc / "pango" / "pango-macros.h",
+               "pango/pango-macros.h",
+               /*min_exports=*/400,
+               // pango.h includes glib-object.h, so `import gnome.pango;` must
+               // be as complete as `#include <pango/pango.h>` — a consumer
+               // needs gboolean, GObject and g_free without naming anything
+               // else. gnome.gio is what this member DEPENDS on, and it
+               // re-exports glib, gobject and gmodule behind it.
+               /*reexports=*/{"gnome.gio"});
+
+    mcpp::rerun_if_changed("build.mcpp");
+    return 0;
+}
