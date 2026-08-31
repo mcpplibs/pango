@@ -76,17 +76,26 @@ compat.fribidi     the bidi algorithm
 freedesktop.cairo  the surface the glyphs land on
 ```
 
-A blank image means one of them is not doing its job — and the assertion is
-`ink > 0`, deliberately not a tuned number. An earlier version used `> 100` and
-passed on a machine with 184 font families (216 pixels) while failing on a CI
-runner with four (72), because with almost no fonts `世界` renders as tofu and
-the ink is thinner. A threshold there is an assertion about the MACHINE.
+A blank image means one of them is not doing its job.
 
-⚠️ **It degrades honestly when there are no fonts.** `freedesktop.fontconfig`
-compiles its runtime paths empty on purpose, so a runner with no
-`FONTCONFIG_FILE` legitimately finds zero families — and then there is nothing
-to draw. That case is *reported*, not passed over, because "0 families, so the
-only real check did not run" and "the text rendered" must not look alike.
+### ⚠️ Two ways this assertion was wrong before it was right
+
+**`drawn > 100`.** Passed here — 184 font families, 216 pixels — and failed on
+a CI runner with four families and 72. A threshold calibrated to the
+developer's font set is an assertion about the *machine*. Ink is ink: `> 0`.
+
+**`families > 0` as the guard.** Also not enough, and this one took two CI
+rounds to see. That same runner reported **four families** and then measured
+the layout at `80x858545` in one process and `80x346398` in another — nonsense
+heights on a 100px surface, because four families there means fontconfig has
+*entries* with no usable font behind them. The glyphs land off the surface and
+the ink count becomes arbitrary: **0 in one test and 116 in its twin, from
+byte-identical drawing code.**
+
+So the guard is now the layout's **own metrics** — `w > 0 && h > 0 && h <= 100`
+— which tests the machine's suitability explicitly instead of inferring it. When
+that fails the run **says so**, because "the check was skipped" and "the text
+rendered" must not look alike.
 
 ## ⚠️ A silent degradation this fork walked into
 
