@@ -128,7 +128,13 @@ jobs:
           # ── the module wrappers ──────────────────────────────────────────
           # Floors, not equalities: upstream adds API. What they catch is a
           # COLLAPSE, and every collapse in this generator's history was silent.
-          for m in pango:700 pangoft2:60 pangocairo:200; do
+          # ⚠️ pangocairo's floor is 25, not 200. It exported 284 while it
+          # scanned cairo.h itself to work around freedesktop.cairo's
+          # incomplete wrapper; with that gone it exports its OWN surface —
+          # 32 names against upstream's 33 pango_cairo_* functions. A floor
+          # left at 200 turns a CORRECT shrink into a red build, which is the
+          # opposite of what these floors are for.
+          for m in pango:700 pangoft2:60 pangocairo:25; do
             name=${m%%:*}; floor=${m##*:}
             n=$(grep -c '^using ::' "$name/src/$name.cppm")
             echo "$name module exports: $n (floor $floor)"
