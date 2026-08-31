@@ -28,19 +28,28 @@ int main()
     // is set by the member that actually compiles the fc sources.
     pango_common_setup({"HAVE_CAIRO", "HAVE_CAIRO_FREETYPE", "HAVE_FREETYPE"});
 
-    // ✅ cairo.h IS NO LONGER SCANNED HERE. It was, as a workaround: on
-    // freedesktop.cairo 1.18.2-mcpp2 the module exported 470 names and was
-    // missing `cairo_t` and all 192 enumerators, so re-exporting it did not
-    // give this member's own signatures the types they take. That gap was
-    // found FROM HERE — pangocairo cannot mix the header and module routes
-    // (pangocairo.h reaches glib and therefore <stdio.h>), so it had to ask
-    // the module and got nothing.
+    // ⚠️ cairo.h IS SCANNED HERE, and that is a WORKAROUND rather than a
+    // design. This member's own signatures take `cairo_t *` and
+    // `cairo_surface_t *`, so `import gnome.pangocairo;` has to carry them.
+    // The obvious way is to re-export freedesktop.cairo — which is done below
+    // — but MEASURED on 1.18.2 its module is not sufficient on its own:
     //
-    // Fixed upstream in -mcpp3: 697 names, `cairo_t` and the enumerators
-    // included. The re-export below is now sufficient on its own, which is
-    // what it should always have been.
+    //     470 names exported, ZERO enumerators (no CAIRO_FORMAT_ARGB32,
+    //     no CAIRO_FONT_TYPE_FT), and no `cairo_t`
+    //
+    // and the index's own cairo example does not notice, because it writes
+    // BOTH `#include <cairo.h>` and `import freedesktop.cairo;` — the header
+    // supplies what the module lacks. pangocairo cannot do that: pangocairo.h
+    // reaches glib and therefore <stdio.h>, so mixing the two routes makes
+    // `struct _IO_FILE` two entities.
+    //
+    // Exporting the same entity from two modules is harmless — they are the
+    // same global-module entities — so this is additive, not a conflict. When
+    // freedesktop.cairo's wrapper is fixed, this line can go.
     gen_module("gnome.pangocairo", {"pango/pangocairo.h"},
-               {g_up / "pango" / "pangocairo.h"},
+               {g_up / "pango" / "pangocairo.h",
+                fs::path(mcpp::dep_dir("cairo")).parent_path().parent_path()
+                    / "upstream" / "src" / "cairo.h"},
                g_root / "src" / "pangocairo.cppm",
                g_inc / "pango" / "pangocairo-macros.h",
                "pango/pangocairo-macros.h",
@@ -49,7 +58,7 @@ int main()
                // cairo's names too — `cairo_t` and `cairo_surface_t` are in
                // this member's own signatures. freedesktop.cairo exposes a
                // module of its own, which is what makes this possible.
-               /*reexports=*/{"gnome.pango", "gnome.pangoft2", "cairo"});
+               /*reexports=*/{"gnome.pango", "gnome.pangoft2", "freedesktop.cairo"});
 
     mcpp::rerun_if_changed("build.mcpp");
     return 0;
