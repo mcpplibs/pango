@@ -29,19 +29,7 @@ int main()
     pango_common_setup({"HAVE_CAIRO", "HAVE_CAIRO_FREETYPE", "HAVE_FREETYPE"});
 
     // ⚠️ cairo.h IS SCANNED HERE, and that is a WORKAROUND rather than a
-    // design — one that must stay until freedesktop.cairo's FIX IS PUBLISHED,
-    // not merely written. The fix exists (1.18.2-mcpp3, 697 names) but this
-    // package resolves cairo from the PUBLISHED index, and a consumer of
-    // gnome.pangocairo resolves both from there too. Removing this line before
-    // cairo's new asset is on main makes the pangocairo example unbuildable —
-    // and it cannot be tested in one index PR either, because a member may
-    // declare only ONE project-level index repo:
-    //
-    //     error: ≥2 project-level index repos is a known xlings resolution gap
-    //
-    // so an example cannot use a local gnome.* descriptor and a local
-    // freedesktop.* descriptor at the same time. cairo lands first; this
-    // follows. This member's own signatures take `cairo_t *` and
+    // design. This member's own signatures take `cairo_t *` and
     // `cairo_surface_t *`, so `import gnome.pangocairo;` has to carry them.
     // The obvious way is to re-export freedesktop.cairo — which is done below
     // — but MEASURED on 1.18.2 its module is not sufficient on its own:
