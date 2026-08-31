@@ -112,19 +112,33 @@ followed by a segfault. The test now reads the font map's *font type* and
 requires `CAIRO_FONT_TYPE_FT`, which is the assertion that would have caught it
 immediately.
 
-## ⚠️ `freedesktop.cairo`'s module is not sufficient on its own
+## ✅ `cairo`'s module was not sufficient on its own — this fork found it
 
-Measured on 1.18.2: it exports 470 names, **zero enumerators** (no
-`CAIRO_FORMAT_ARGB32`, no `CAIRO_FONT_TYPE_FT`) and no `cairo_t`. The index's
-own cairo example does not notice, because it writes **both**
-`#include <cairo.h>` and `import freedesktop.cairo;` — the header supplies what
-the module lacks.
+Measured on the `1.18.2-mcpp2` asset: 470 names, **zero enumerators** and no
+`cairo_t`. The index's own cairo example did not notice, because it wrote
+**both** `#include <cairo.h>` and `import freedesktop.cairo;` — the header
+supplied what the module lacked, so that import had never been asked to stand
+on its own.
 
-pangocairo cannot do that (mixing the routes is the `struct _IO_FILE` problem
-above), so `gnome.pangocairo` scans `cairo.h` itself and exports those names.
-Exporting the same entity from two modules is harmless — they are the same
-global-module entities — so this is additive. **When cairo's wrapper is fixed,
-that scan can go.**
+It surfaced *here*, because pangocairo cannot mix the two routes
+(`pangocairo.h` reaches glib and therefore `<stdio.h>`) and so had to ask the
+module for `cairo_t` and got nothing. This fork carried a workaround —
+scanning `cairo.h` itself — for two releases, and **it is now gone**:
+`1.18.2-mcpp3` exports 697 names, and the plain `export import cairo;` is
+enough.
+
+⚠️ **The workaround could not be removed in the same change that fixed cairo,
+and that is a property of the index rather than of either package.** A member
+may declare only ONE project-level index repo:
+
+```
+error: ≥2 project-level index repos is a known xlings resolution gap
+```
+
+so `tests/examples/pangocairo` cannot use a local `gnome.*` descriptor and a
+local `freedesktop.*` descriptor at once. cairo had to land first; this
+followed. Getting that order wrong turns both sides red while every line of
+code is correct.
 
 ## ⚠️ Name `pangocairo` alone
 
