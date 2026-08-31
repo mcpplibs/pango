@@ -76,7 +76,11 @@ compat.fribidi     the bidi algorithm
 freedesktop.cairo  the surface the glyphs land on
 ```
 
-A blank image means one of them is not doing its job.
+A blank image means one of them is not doing its job — and the assertion is
+`ink > 0`, deliberately not a tuned number. An earlier version used `> 100` and
+passed on a machine with 184 font families (216 pixels) while failing on a CI
+runner with four (72), because with almost no fonts `世界` renders as tofu and
+the ink is thinner. A threshold there is an assertion about the MACHINE.
 
 ⚠️ **It degrades honestly when there are no fonts.** `freedesktop.fontconfig`
 compiles its runtime paths empty on purpose, so a runner with no
